@@ -1,3 +1,4 @@
+import Array "mo:base/Array";
 import Blob "mo:base/Blob";
 import HashMap "mo:base/HashMap";
 import Nat "mo:base/Nat";
@@ -63,10 +64,24 @@ actor class ICETToken(initialOwner : Principal, initialSupply : Nat) = this {
 
   let balances = HashMap.HashMap<Text, Nat>(128, Text.equal, Text.hash);
 
+  func subaccountText(subaccount : Subaccount) : Text {
+    Array.foldLeft<Nat8, Text>(
+      Blob.toArray(subaccount),
+      "",
+      func(acc : Text, part : Nat8) : Text {
+        if (acc == "") {
+          Nat8.toText(part);
+        } else {
+          acc # "-" # Nat8.toText(part);
+        };
+      },
+    );
+  };
+
   func accountKey(account : Account) : Text {
     Principal.toText(account.owner) # ":" # switch (account.subaccount) {
       case (null) "";
-      case (?sub) debug_show (Blob.toArray(sub));
+      case (?sub) subaccountText(sub);
     };
   };
 
