@@ -61,7 +61,7 @@ actor class ICETToken(initialOwner : Principal, initialSupply : Nat) = this {
   stable var totalSupply : Nat = initialSupply;
   stable var nextTxIndex : Nat = 0;
 
-  let balances = HashMap.HashMap<Text, Nat>(10, Text.equal, Text.hash);
+  let balances = HashMap.HashMap<Text, Nat>(128, Text.equal, Text.hash);
 
   func accountKey(account : Account) : Text {
     Principal.toText(account.owner) # ":" # switch (account.subaccount) {
@@ -144,12 +144,21 @@ actor class ICETToken(initialOwner : Principal, initialSupply : Nat) = this {
       return #Err(#InsufficientFunds({ balance = fromBalance }));
     };
 
+    if (transferFee > 0 and totalSupply < transferFee) {
+      return #Err(
+        #GenericError({
+          error_code = 1;
+          message = "Total supply too low for fee burn";
+        })
+      );
+    };
+
     let toBalance = getBalance(args.to);
 
     putBalance(fromAccount, fromBalance - debitAmount);
     putBalance(args.to, toBalance + args.amount);
 
-    if (transferFee > 0 and totalSupply >= transferFee) {
+    if (transferFee > 0) {
       totalSupply -= transferFee;
     };
 
@@ -161,6 +170,10 @@ actor class ICETToken(initialOwner : Principal, initialSupply : Nat) = this {
 
   public shared ({ caller }) func mint(to : Account, amount : Nat) : async Bool {
     if (caller != initialOwner) {
+      return false;
+    };
+
+    if (amount == 0) {
       return false;
     };
 
