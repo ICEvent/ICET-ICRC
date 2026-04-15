@@ -1,0 +1,43 @@
+type Account = record { owner : principal; subaccount : opt blob };
+type Nat64 = nat64;
+type TransferArgs = record {
+  from_subaccount : opt blob;
+  to : Account;
+  amount : nat;
+  fee : opt nat;
+  memo : opt blob;
+  created_at_time : opt Nat64;
+};
+type TransferError = variant {
+  BadFee : record { expected_fee : nat };
+  BadBurn : record { min_burn_amount : nat };
+  InsufficientFunds : record { balance : nat };
+  TooOld;
+  CreatedInFuture : record { ledger_time : Nat64 };
+  Duplicate : record { duplicate_of : nat };
+  TemporarilyUnavailable;
+  GenericError : record { error_code : nat; message : text };
+};
+type TransferResult = variant { Ok : nat; Err : TransferError };
+type Value = variant {
+  Blob : blob;
+  Text : text;
+  Nat : nat;
+  Int : int;
+  Array : vec Value;
+  Map : vec record { text; Value };
+};
+type SupportedStandard = record { name : text; url : text };
+service : (principal, nat) -> {
+  icrc1_balance_of : (Account) -> (nat) query;
+  icrc1_decimals : () -> (nat8) query;
+  icrc1_fee : () -> (nat) query;
+  icrc1_metadata : () -> (vec record { text; Value }) query;
+  icrc1_minting_account : () -> (opt Account) query;
+  icrc1_name : () -> (text) query;
+  icrc1_supported_standards : () -> (vec SupportedStandard) query;
+  icrc1_symbol : () -> (text) query;
+  icrc1_total_supply : () -> (nat) query;
+  icrc1_transfer : (TransferArgs) -> (TransferResult);
+  mint : (Account, nat) -> (bool);
+}

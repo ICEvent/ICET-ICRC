@@ -1,0 +1,9 @@
+{
+  "canisters": {
+    "icet": {
+      "type": "motoko",
+      "main": "src/icet/main.mo"
+    }
+  },
+  "version": 1
+}
