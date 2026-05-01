@@ -7,7 +7,7 @@ import Nat8 "mo:base/Nat8";
 import Principal "mo:base/Principal";
 import Text "mo:base/Text";
 
-actor class ICETToken(initialOwner : Principal, initialSupply : Nat) = this {
+persistent actor class ICETToken(initialOwner : Principal, initialSupply : Nat) = this {
   public type Subaccount = Blob;
 
   public type Account = {
@@ -54,15 +54,15 @@ actor class ICETToken(initialOwner : Principal, initialSupply : Nat) = this {
     url : Text;
   };
 
-  let tokenName : Text = "ICEvent Token";
-  let tokenSymbol : Text = "ICET";
-  let tokenDecimals : Nat8 = 8;
-  let transferFee : Nat = 10_000;
+  transient let tokenName : Text = "ICEvent Token";
+  transient let tokenSymbol : Text = "ICET";
+  transient let tokenDecimals : Nat8 = 8;
+  transient let transferFee : Nat = 10_000;
 
-  stable var totalSupply : Nat = initialSupply;
-  stable var nextTxIndex : Nat = 0;
+  var totalSupply : Nat = initialSupply;
+  var nextTxIndex : Nat = 0;
 
-  let balances = HashMap.HashMap<Text, Nat>(128, Text.equal, Text.hash);
+  transient let balances = HashMap.HashMap<Text, Nat>(128, Text.equal, Text.hash);
 
   func subaccountText(subaccount : Subaccount) : Text {
     Array.foldLeft<Nat8, Text>(
@@ -79,10 +79,10 @@ actor class ICETToken(initialOwner : Principal, initialSupply : Nat) = this {
   };
 
   func accountKey(account : Account) : Text {
-    Principal.toText(account.owner) # ":" # switch (account.subaccount) {
+    Principal.toText(account.owner) # ":" # (switch (account.subaccount) {
       case (null) "";
       case (?sub) subaccountText(sub);
-    };
+    });
   };
 
   func getBalance(account : Account) : Nat {
@@ -96,12 +96,12 @@ actor class ICETToken(initialOwner : Principal, initialSupply : Nat) = this {
     balances.put(accountKey(account), value);
   };
 
-  let ownerAccount : Account = {
+  transient let ownerAccount : Account = {
     owner = initialOwner;
     subaccount = null;
   };
 
-  let _ = balances.put(accountKey(ownerAccount), initialSupply);
+  transient let _ = balances.put(accountKey(ownerAccount), initialSupply);
 
   public query func icrc1_name() : async Text { tokenName };
 
