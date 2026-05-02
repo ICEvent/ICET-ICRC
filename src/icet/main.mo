@@ -1,6 +1,7 @@
 import Array "mo:base/Array";
 import Blob "mo:base/Blob";
 import HashMap "mo:base/HashMap";
+import Int "mo:base/Int";
 import Nat "mo:base/Nat";
 import Nat64 "mo:base/Nat64";
 import Nat8 "mo:base/Nat8";
@@ -195,5 +196,105 @@ persistent actor class ICETToken(initialOwner : Principal, initialSupply : Nat) 
     putBalance(to, getBalance(to) + amount);
     totalSupply += amount;
     true;
+  };
+
+  // ── Old-ICET redemption ──────────────────────────────────────────────────
+
+  type OldICETActor = actor {
+    icrc1_balance_of : query (Account) -> async Nat;
+    icrc1_transfer : ({
+      from_subaccount : ?Subaccount;
+      to : Account;
+      amount : Nat;
+      fee : ?Nat;
+      memo : ?Blob;
+      created_at_time : ?Nat64;
+    }) -> async TransferResult;
+    icrc1_fee : query () -> async Nat;
+  };
+
+  transient let OLD_ICET_CANISTER_ID : Text = "ot4zw-oaaaa-aaaag-qabaa-cai";
+
+  // All 0xFF bytes — permanently holds locked old-ICET tokens
+  transient let OLD_ICET_BURN_VAULT : Subaccount =
+    Blob.fromArray(Array.tabulate<Nat8>(32, func(_) = 0xFF));
+
+  // Derive a 32-byte subaccount from a Principal (principal bytes, zero-padded)
+  func principalToSubaccount(p : Principal) : Subaccount {
+    let bytes = Blob.toArray(Principal.toBlob(p));
+    Blob.fromArray(
+      Array.tabulate<Nat8>(32, func(i) {
+        if (i < bytes.size()) bytes[i] else 0;
+      })
+    );
+  };
+
+  /// Returns the address where a user must send their old ICET tokens
+  /// before calling redeemOldICET().
+  public query func getOldICETDepositAddress(user : Principal) : async Account {
+    {
+      owner = Principal.fromActor(this);
+      subaccount = ?principalToSubaccount(user);
+    };
+  };
+
+  /// Burns old ICET that were deposited to the caller's deposit address and
+  /// mints an equivalent amount of new ICET to the caller (1:1, net of the
+  /// old-ICET transfer fee).
+  ///
+  /// Workflow:
+  ///   1. Call getOldICETDepositAddress(yourPrincipal) to get your deposit address.
+  ///   2. Transfer old ICET to that address on the old canister (ot4zw-oaaaa-aaaag-qabaa-cai).
+  ///   3. Call redeemOldICET() — this canister locks the old tokens and mints new ICET.
+  public shared ({ caller }) func redeemOldICET() : async TransferResult {
+    let callerSubaccount = principalToSubaccount(caller);
+    let depositAccount : Account = {
+      owner = Principal.fromActor(this);
+      subaccount = ?callerSubaccount;
+    };
+
+    let oldICET : OldICETActor = actor(OLD_ICET_CANISTER_ID);
+
+    // 1. Check deposited balance on old canister
+    let depositBalance = await oldICET.icrc1_balance_of(depositAccount);
+    if (depositBalance == 0) {
+      return #Err(#InsufficientFunds({ balance = 0 }));
+    };
+
+    let oldFee = await oldICET.icrc1_fee();
+    if (depositBalance <= oldFee) {
+      return #Err(#InsufficientFunds({ balance = depositBalance }));
+    };
+    // Subtract via Int to avoid the M0155 Nat-underflow trap warning.
+    let redeemAmount : Nat = Int.abs((depositBalance : Int) - (oldFee : Int));
+
+    // 2. Move old ICET into the burn vault (locked forever in this canister)
+    let vaultAccount : Account = {
+      owner = Principal.fromActor(this);
+      subaccount = ?OLD_ICET_BURN_VAULT;
+    };
+
+    let burnResult = await oldICET.icrc1_transfer({
+      from_subaccount = ?callerSubaccount;
+      to = vaultAccount;
+      amount = redeemAmount;
+      fee = ?oldFee;
+      memo = null;
+      created_at_time = null;
+    });
+
+    switch (burnResult) {
+      case (#Err(e)) { return #Err(e) };
+      case (#Ok(_)) {};
+    };
+
+    // 3. Mint new ICET 1:1 to caller's default subaccount
+    let toAccount : Account = { owner = caller; subaccount = null };
+    putBalance(toAccount, getBalance(toAccount) + redeemAmount);
+    totalSupply += redeemAmount;
+
+    let txIndex = nextTxIndex;
+    nextTxIndex += 1;
+    #Ok(txIndex);
   };
 };
